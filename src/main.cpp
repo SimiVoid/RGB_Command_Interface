@@ -1,14 +1,27 @@
 #include <iostream>
+#include <fstream>
 #include <unordered_map>
 #include <vector>
 #include <any>
 #include <string>
+
+#ifdef __unix__
+
+constexpr bool isWindows = false;
+
+#elif defined(_WIN32) || defined(WIN32)
+#include <Windows.h>
+
+constexpr bool isWindows = true;
+
+#endif
 
 #include "ReturnedCodes.h"
 
 typedef std::vector<std::any> CmdParams;
 
 void help();
+void send(const std::unordered_map<std::basic_string<char>, CmdParams>& cmd);
 
 [[nodiscard]]
 std::unordered_map<std::basic_string<char>, CmdParams> parseCmd(int argc, char** argv);
@@ -20,6 +33,8 @@ int main(int argc, char** argv) {
     }
 
     auto cmd = parseCmd(argc, argv);
+
+    send(cmd);
 
     return 0;
 }
@@ -41,17 +56,37 @@ void help() {
 std::unordered_map<std::basic_string<char>, CmdParams> parseCmd(int argc, char** argv) {
     std::unordered_map<std::basic_string<char>, CmdParams> commands;
 
+    auto checkCorrectColorValue = [](int colorValue) {
+        if(colorValue > 255)
+            return 255;
+        else if(colorValue < 0)
+            return 0;
+
+        return colorValue;
+    };
+
     for(auto i = 1; i < argc; ++i) {
         if (argv[i] == "-C" || argv[i] == "--color") {
             if (argc < i + 3) exit(ReturnedCodes::InvalidCommand);
-            commands["-C"] = CmdParams{
-                    std::stoi(argv[i + 1]),
-                    std::stoi(argv[i + 2]),
-                    std::stoi(argv[i + 3]),
-            };
+            try {
+                commands["-C"] = CmdParams{
+                    checkCorrectColorValue(std::stoi(argv[i + 1])),
+                    checkCorrectColorValue(std::stoi(argv[i + 2])),
+                    checkCorrectColorValue(std::stoi(argv[i + 3]))
+                };
+            } catch (const std::exception& exception) {
+                std::cerr << exception.what() << "\n";
+                exit(ReturnedCodes::InvalidCommand);
+            }
+
         } else if (argv[i] == "-A" || argv[i] == "--alpha") {
             if (argc < i + 1) exit(ReturnedCodes::InvalidCommand);
-            commands["-A"] = CmdParams{std::stoi(argv[i + 1])};
+            try {
+                commands["-A"] = CmdParams{checkCorrectColorValue(std::stoi(argv[i + 1]))};
+            } catch(const std::exception& exception) {
+                std::cerr << exception.what() << "\n";
+                exit(ReturnedCodes::InvalidCommand);
+            }
         } else if ((argv[i] == "-S" || argv[i] == "--spectrum") && commands.find("-B") == commands.end()) {
             commands["-S"] = CmdParams{};
         } else if ((argv[i] == "-B" || argv[i] == "--blink") && commands.find("-S") == commands.end()) {
@@ -75,4 +110,32 @@ std::unordered_map<std::basic_string<char>, CmdParams> parseCmd(int argc, char**
     }
 
     return commands;
+}
+
+void send(std::unordered_map<std::basic_string<char>, CmdParams>& cmd) {
+    if(isWindows) {
+
+    }
+    else {
+        std::ofstream file("/dev/ttyACM5");
+
+        if(file.good() && file.is_open()) {
+            if(cmd["-M"] == CmdParams{false})
+                file << "--off\n";
+            else {
+                file << "--on\n";
+                for(auto& param : cmd) {
+                    if(param.first == "-M") continue;
+
+                    file << param.first;
+                    for(auto value : param.second)
+                        file << " " << std::any_cast<int>(value);
+
+                    file << "\n";
+                }
+            }
+        }
+
+        file.close();
+    }
 }
